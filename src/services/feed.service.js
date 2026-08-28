@@ -1,21 +1,7 @@
-import { db } from "../config/firebase.js";
+import { db, bucket } from "../config/firebase.js";
 
-
-/**
- * Obtiene el feed paginado.
- *
- * limit: máximo de publicaciones.
- * cursor: ID de la última publicación recibida.
- */
-export async function getFeed({
-  limit = 20,
-  cursor = null,
-  userId = null,
-}) {
-  const parsedLimit = Math.min(
-    Math.max(Number(limit), 1),
-    20
-  );
+export async function getFeed({ limit = 20, cursor = null, userId = null }) {
+  const parsedLimit = Math.min(Math.max(Number(limit), 1), 20);
 
   let query = db
     .collection("challengeSubmissions")
@@ -43,30 +29,43 @@ export async function getFeed({
   for (const doc of snapshot.docs) {
     const submission = doc.data();
 
-    const userDoc = await db
-      .collection("users")
-      .doc(submission.userId)
-      .get();
+    const [userDoc, challengeDoc] = await Promise.all([
+      db.collection("users").doc(submission.userId).get(),
 
-    const challengeDoc = await db
-      .collection("challenges")
-      .doc(submission.challengeId)
-      .get();
+      db.collection("challenges").doc(submission.challengeId).get(),
+    ]);
 
-    const user = userDoc.exists
-      ? userDoc.data()
-      : {};
+    const user = userDoc.exists ? userDoc.data() : {};
 
-    const challenge = challengeDoc.exists
-      ? challengeDoc.data()
-      : {};
+    const challenge = challengeDoc.exists ? challengeDoc.data() : {};
+
+    let imageUrl = null;
+
+    if (submission.imagePath) {
+      const [url] = await bucket.file(submission.imagePath).getSignedUrl({
+        action: "read",
+        expires: Date.now() + 1000 * 60 * 60,
+      });
+
+      imageUrl = url;
+    }
+
+    let likedByMe = false;
+
+    if (userId) {
+      const likeId = `${doc.id}_${userId}`;
+
+      const likeDoc = await db.collection("likes").doc(likeId).get();
+
+      likedByMe = likeDoc.exists;
+    }
 
     items.push({
       id: doc.id,
 
       user: {
         id: submission.userId,
-        name: user.nombre || "Usuario",
+        name: user.name || "Usuario",
       },
 
       challenge: {
@@ -74,13 +73,13 @@ export async function getFeed({
         title: challenge.title || "",
       },
 
-      imagePath: submission.imagePath,
+      imageUrl,
 
       likesCount: submission.likesCount || 0,
 
       createdAt: submission.completedAt,
 
-      likedByMe: false,
+      likedByMe,
     });
   }
 

@@ -1,16 +1,21 @@
-import { firebaseApp, db } from "../config/firebase.js";
+import { db, FieldValue } from "../config/firebase.js";
 
-
-/**
- * Actualiza el ranking cuando un usuario
- * completa un reto.
- */
 export async function updateRanking({
   userId,
   completionTime,
 }) {
   if (!userId) {
     throw new Error("userId es obligatorio");
+  }
+
+  if (
+    completionTime === undefined ||
+    completionTime === null ||
+    completionTime < 0
+  ) {
+    throw new Error(
+      "completionTime es obligatorio y debe ser válido"
+    );
   }
 
   const rankingRef = db
@@ -25,9 +30,9 @@ export async function updateRanking({
       transaction.set(rankingRef, {
         userId,
         completedChallenges: 1,
-        totalTime: completionTime || 0,
+        totalTime: completionTime,
         updatedAt:
-          firebaseApp.firestore.FieldValue.serverTimestamp(),
+          FieldValue.serverTimestamp(),
       });
 
       return;
@@ -40,11 +45,10 @@ export async function updateRanking({
         (current.completedChallenges || 0) + 1,
 
       totalTime:
-        (current.totalTime || 0) +
-        (completionTime || 0),
+        (current.totalTime || 0) + completionTime,
 
       updatedAt:
-        firebaseApp.firestore.FieldValue.serverTimestamp(),
+        FieldValue.serverTimestamp(),
     });
   });
 
@@ -52,9 +56,6 @@ export async function updateRanking({
 }
 
 
-/**
- * Obtiene el ranking.
- */
 export async function getRanking(limit = 20) {
   const parsedLimit = Math.min(
     Math.max(Number(limit), 1),
@@ -74,28 +75,95 @@ export async function getRanking(limit = 20) {
     .limit(parsedLimit)
     .get();
 
-  return snapshot.docs.map((doc, index) => ({
-    position: index + 1,
-    id: doc.id,
-    ...doc.data(),
-  }));
+  const ranking = await Promise.all(
+    snapshot.docs.map(
+      async (doc, index) => {
+        const data = doc.data();
+
+        const userDoc = await db
+          .collection("users")
+          .doc(data.userId)
+          .get();
+
+        const user = userDoc.exists
+          ? userDoc.data()
+          : {};
+
+        return {
+          position: index + 1,
+
+          userId: data.userId,
+
+          name:
+            user.name || "Usuario",
+
+          completedChallenges:
+            data.completedChallenges || 0,
+
+          totalTime:
+            data.totalTime || 0,
+        };
+      }
+    )
+  );
+
+  return ranking;
 }
 
 
-/**
- * Obtiene la posición aproximada de un usuario.
- */
 export async function getRankingPosition(userId) {
-  const ranking = await getRanking(20);
+  if (!userId) {
+    throw new Error("userId es obligatorio");
+  }
 
-  const position = ranking.findIndex(
-    (user) => user.userId === userId
-  );
+  const userRankingRef = db
+    .collection("ranking")
+    .doc(userId);
+
+  const userRankingDoc =
+    await userRankingRef.get();
+
+  if (!userRankingDoc.exists) {
+    return {
+      position: null,
+      userId,
+      completedChallenges: 0,
+      totalTime: 0,
+    };
+  }
+
+  const userData =
+    userRankingDoc.data();
+
+  const snapshot = await db
+    .collection("ranking")
+    .orderBy(
+      "completedChallenges",
+      "desc"
+    )
+    .orderBy(
+      "totalTime",
+      "asc"
+    )
+    .get();
+
+  let position = null;
+
+  snapshot.docs.forEach((doc, index) => {
+    if (doc.id === userId) {
+      position = index + 1;
+    }
+  });
 
   return {
-    position:
-      position === -1
-        ? null
-        : position + 1,
+    position,
+
+    userId,
+
+    completedChallenges:
+      userData.completedChallenges || 0,
+
+    totalTime:
+      userData.totalTime || 0,
   };
 }

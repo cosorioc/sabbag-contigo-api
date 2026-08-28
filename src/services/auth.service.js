@@ -1,4 +1,4 @@
-import { firebaseApp, db } from "../config/firebase.js";
+import { firebaseApp, db, auth, FieldValue } from "../config/firebase.js";
 
 /**
  * Valida si una cédula está autorizada para registrarse.
@@ -10,10 +10,7 @@ export async function validateCedula(cedula) {
 
   const normalizedCedula = String(cedula).trim();
 
-  const doc = await db
-    .collection("allowedUsers")
-    .doc(normalizedCedula)
-    .get();
+  const doc = await db.collection("allowedCedulas").doc(normalizedCedula).get();
 
   if (!doc.exists) {
     return {
@@ -38,7 +35,6 @@ export async function validateCedula(cedula) {
   };
 }
 
-
 /**
  * Verifica el Firebase ID Token enviado por el frontend.
  */
@@ -48,7 +44,7 @@ export async function verifyIdToken(idToken) {
   }
 
   try {
-    const decodedToken = await firebaseApp.auth().verifyIdToken(idToken);
+    const decodedToken = await auth.verifyIdToken(idToken);
 
     return decodedToken;
   } catch (error) {
@@ -58,7 +54,6 @@ export async function verifyIdToken(idToken) {
   }
 }
 
-
 /**
  * Obtiene el perfil de usuario desde Firestore.
  */
@@ -67,10 +62,7 @@ export async function getUserByUid(uid) {
     throw new Error("UID requerido");
   }
 
-  const doc = await db
-    .collection("users")
-    .doc(uid)
-    .get();
+  const doc = await db.collection("users").doc(uid).get();
 
   if (!doc.exists) {
     return null;
@@ -82,15 +74,10 @@ export async function getUserByUid(uid) {
   };
 }
 
-
 /**
  * Crea o actualiza el perfil del usuario.
  */
-export async function createOrUpdateUser({
-  uid,
-  cedula,
-  phone,
-}) {
+export async function createOrUpdateUser({ uid, cedula, phone }) {
   if (!uid || !cedula) {
     throw new Error("UID y cédula son obligatorios");
   }
@@ -100,7 +87,7 @@ export async function createOrUpdateUser({
   const existingUser = await userRef.get();
 
   const allowedUser = await db
-    .collection("allowedUsers")
+    .collection("allowedCedulas")
     .doc(String(cedula))
     .get();
 
@@ -114,12 +101,11 @@ export async function createOrUpdateUser({
     cedula: String(cedula),
     phone: phone || null,
     nombre: allowedData.nombre || null,
-    updatedAt: firebaseApp.firestore.FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
   };
 
   if (!existingUser.exists) {
-    userData.createdAt =
-      firebaseApp.firestore.FieldValue.serverTimestamp();
+    userData.createdAt = FieldValue.serverTimestamp();
   }
 
   await userRef.set(userData, { merge: true });
@@ -129,7 +115,6 @@ export async function createOrUpdateUser({
     ...userData,
   };
 }
-
 
 /**
  * Obtiene la información completa del usuario autenticado.

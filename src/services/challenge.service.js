@@ -1,8 +1,8 @@
-import { firebaseApp, db, bucket } from "../config/firebase.js";
+import { db, FieldValue } from "../config/firebase.js";
+import { updateRanking } from "./ranking.service.js";
 
-/**
- * Obtiene todos los retos activos.
- */
+const CHALLENGES_START_DATE = new Date("2026-08-01T00:00:00-05:00");
+
 export async function getChallenges() {
   const snapshot = await db
     .collection("challenges")
@@ -16,11 +16,12 @@ export async function getChallenges() {
   }));
 }
 
-/**
- * Obtiene un reto específico.
- */
 export async function getChallengeById(challengeId) {
-  const doc = await db.collection("challenges").doc(challengeId).get();
+  if (!challengeId) {
+    throw new Error("challengeId es obligatorio");
+  }
+
+  const doc = await db.collection("challenges").doc(String(challengeId)).get();
 
   if (!doc.exists) {
     throw new Error("Reto no encontrado");
@@ -32,10 +33,11 @@ export async function getChallengeById(challengeId) {
   };
 }
 
-/**
- * Obtiene la participación de un usuario en un reto.
- */
 export async function getUserChallenge(userId, challengeId) {
+  if (!userId || !challengeId) {
+    throw new Error("userId y challengeId son obligatorios");
+  }
+
   const id = `${userId}_${challengeId}`;
 
   const doc = await db.collection("challengeSubmissions").doc(id).get();
@@ -50,10 +52,11 @@ export async function getUserChallenge(userId, challengeId) {
   };
 }
 
-/**
- * Obtiene todos los retos realizados por un usuario.
- */
 export async function getUserChallenges(userId) {
+  if (!userId) {
+    throw new Error("userId es obligatorio");
+  }
+
   const snapshot = await db
     .collection("challengeSubmissions")
     .where("userId", "==", userId)
@@ -65,26 +68,36 @@ export async function getUserChallenges(userId) {
   }));
 }
 
-/**
- * Registra la participación en un reto.
- *
- * imageBuffer:
- * Buffer generado por Sharp.
- */
 export async function submitChallenge({
   userId,
   challengeId,
   imagePath,
   thumbnailPath,
 }) {
-  if (!userId || !challengeId || !imagePath) {
-    throw new Error("Datos incompletos");
+  if (!userId || !challengeId) {
+    throw new Error("userId y challengeId son obligatorios");
   }
 
   const challenge = await getChallengeById(challengeId);
 
   if (!challenge.active) {
     throw new Error("Este reto no está disponible");
+  }
+
+  if (challenge.requiresEvidence !== false && !imagePath) {
+    throw new Error("La evidencia del reto es obligatoria");
+  }
+
+  if (challenge.requiresEvidence === false) {
+    throw new Error(
+      "Este reto no requiere evidencia y se completa mediante su propia condición",
+    );
+  }
+
+  const now = new Date();
+
+  if (now < CHALLENGES_START_DATE) {
+    throw new Error("Los retos todavía no han comenzado");
   }
 
   const submissionId = `${userId}_${challengeId}`;
@@ -97,29 +110,47 @@ export async function submitChallenge({
     throw new Error("Ya completaste este reto");
   }
 
-  const now = firebaseApp.firestore.FieldValue.serverTimestamp();
+  const completionTime = Math.floor(
+    (now.getTime() - CHALLENGES_START_DATE.getTime()) / 1000,
+  );
+
+  const timestamp = FieldValue.serverTimestamp();
 
   await submissionRef.set({
     userId,
-    challengeId,
+    challengeId: String(challengeId),
 
     completed: true,
 
-    imagePath,
-    thumbnailPath,
+    imagePath: imagePath || null,
+    thumbnailPath: thumbnailPath || null,
 
     likesCount: 0,
 
-    createdAt: now,
-    completedAt: now,
+    completionTime,
+
+    createdAt: timestamp,
+    completedAt: timestamp,
+  });
+
+  await updateRanking({
+    userId,
+    completionTime,
   });
 
   return {
     id: submissionId,
+
     userId,
-    challengeId,
-    imagePath,
-    thumbnailPath,
+    challengeId: String(challengeId),
+
     completed: true,
+
+    imagePath: imagePath || null,
+    thumbnailPath: thumbnailPath || null,
+
+    likesCount: 0,
+
+    completionTime,
   };
 }

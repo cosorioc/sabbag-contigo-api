@@ -10,14 +10,16 @@ export async function getRankingController(
   next
 ) {
   try {
+    const limit =
+      req.query.limit || 20;
+
     const ranking =
-      await getRanking(20);
+      await getRanking(limit);
 
     return res.status(200).json({
       success: true,
       ranking,
     });
-
   } catch (error) {
     next(error);
   }
@@ -39,7 +41,6 @@ export async function getMyRanking(
       success: true,
       ...result,
     });
-
   } catch (error) {
     next(error);
   }

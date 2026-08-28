@@ -1,39 +1,25 @@
-import { firebaseApp, db } from "../config/firebase.js";
+import { db } from "../config/firebase.js";
+import { FieldValue } from "../config/firebase.js";
 
-
-/**
- * Da like a una publicación.
- */
-export async function likeSubmission({
-  submissionId,
-  userId,
-}) {
+export async function likeSubmission({ submissionId, userId }) {
   if (!submissionId || !userId) {
-    throw new Error(
-      "submissionId y userId son obligatorios"
-    );
+    throw new Error("submissionId y userId son obligatorios");
   }
 
-  const submissionRef = db
-    .collection("challengeSubmissions")
-    .doc(submissionId);
+  const submissionRef = db.collection("challengeSubmissions").doc(submissionId);
 
   const likeId = `${submissionId}_${userId}`;
 
-  const likeRef = db
-    .collection("likes")
-    .doc(likeId);
+  const likeRef = db.collection("likes").doc(likeId);
 
   await db.runTransaction(async (transaction) => {
-    const submissionDoc =
-      await transaction.get(submissionRef);
+    const submissionDoc = await transaction.get(submissionRef);
 
     if (!submissionDoc.exists) {
       throw new Error("Publicación no encontrada");
     }
 
-    const likeDoc =
-      await transaction.get(likeRef);
+    const likeDoc = await transaction.get(likeRef);
 
     if (likeDoc.exists) {
       throw new Error("Ya has dado like");
@@ -42,13 +28,11 @@ export async function likeSubmission({
     transaction.set(likeRef, {
       submissionId,
       userId,
-      createdAt:
-        firebaseApp.firestore.FieldValue.serverTimestamp(),
+      createdAt: FieldValue.serverTimestamp(),
     });
 
     transaction.update(submissionRef, {
-      likesCount:
-        firebaseApp.firestore.FieldValue.increment(1),
+      likesCount: FieldValue.increment(1),
     });
   });
 
@@ -57,34 +41,21 @@ export async function likeSubmission({
   };
 }
 
-
-/**
- * Elimina un like.
- */
-export async function unlikeSubmission({
-  submissionId,
-  userId,
-}) {
-  const submissionRef = db
-    .collection("challengeSubmissions")
-    .doc(submissionId);
+export async function unlikeSubmission({ submissionId, userId }) {
+  const submissionRef = db.collection("challengeSubmissions").doc(submissionId);
 
   const likeId = `${submissionId}_${userId}`;
 
-  const likeRef = db
-    .collection("likes")
-    .doc(likeId);
+  const likeRef = db.collection("likes").doc(likeId);
 
   await db.runTransaction(async (transaction) => {
-    const submissionDoc =
-      await transaction.get(submissionRef);
+    const submissionDoc = await transaction.get(submissionRef);
 
     if (!submissionDoc.exists) {
       throw new Error("Publicación no encontrada");
     }
 
-    const likeDoc =
-      await transaction.get(likeRef);
+    const likeDoc = await transaction.get(likeRef);
 
     if (!likeDoc.exists) {
       throw new Error("No has dado like");
@@ -93,8 +64,7 @@ export async function unlikeSubmission({
     transaction.delete(likeRef);
 
     transaction.update(submissionRef, {
-      likesCount:
-        firebaseApp.firestore.FieldValue.increment(-1),
+      likesCount: FieldValue.increment(-1),
     });
   });
 
@@ -103,20 +73,24 @@ export async function unlikeSubmission({
   };
 }
 
-
-/**
- * Comprueba si un usuario dio like.
- */
-export async function hasLiked({
-  submissionId,
-  userId,
-}) {
+export async function hasLiked({ submissionId, userId }) {
   const likeId = `${submissionId}_${userId}`;
 
-  const doc = await db
-    .collection("likes")
-    .doc(likeId)
-    .get();
+  const doc = await db.collection("likes").doc(likeId).get();
 
   return doc.exists;
+}
+
+
+export async function getMyLikesCount(userId) {
+  if (!userId) {
+    throw new Error("userId es obligatorio");
+  }
+
+  const snapshot = await db
+    .collection("likes")
+    .where("userId", "==", userId)
+    .get();
+
+  return snapshot.size;
 }
